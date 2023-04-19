@@ -1,70 +1,72 @@
 import socket as sock
-
+from common import *
 
 supportedCmds = ["STOR", "CONNECT", "LIST", "RETR", "QUIT"]
-isConnected = False
-ENCODING = 'utf-8'
-
-DATAHOST="127.0.0.1"
-DATAPORT=8080
 
 FILECHUNKSIZE=4096
-DECODING='utf-8'
 
 class FtpClient:
-    def __init__(self, datahost, dataport, encoding, decoding):
+    def __init__(self, datahost, dataport, encoding, decoding, clientDir):
         self.datahost = datahost
         self.dataport = dataport
         self.encoding = encoding
         self.decoding = decoding
-    def runClient(self):
-        print("Welcome to FTP Client!")
-        commSocket = None
-        while True:
-            userCmd = input(">")
-            separatedCmd = self.parseCmd(userCmd)
-            if separatedCmd == None:
-                print("Bad command please enter a valid FTP command")
-            baseCmd = separatedCmd[0]
+        self.clientDir = clientDir
+        self.output =  ""
+        self.commSocket = None
+        self.isConnected = False
 
-            if not self.verifyCommandArgs(baseCmd, separatedCmd):
-                print("Poorly formatted command please ensure you provide the appropriate number of arguments")
-                continue
+    def runClientCmd(self, userCmd):
+        self.output = ""
 
-            if baseCmd.upper() == "connect".upper():
-                commSocket = self.connect(separatedCmd[1], separatedCmd[2])
-                if(commSocket == None):
-                    print("Connection failed! Please try again")
-                    continue
-                commSocket.send(bytes(userCmd, ENCODING))
-                print("Successful connection formed")
-                isConnected = True
+        separatedCmd = self.parseCmd(userCmd)
+        if separatedCmd == None:
+            self.output += "Bad command please enter a valid FTP command"
+            return self.output
+        baseCmd = separatedCmd[0]
+        if not self.verifyCommandArgs(baseCmd, separatedCmd):
+            self.output +=("Poorly formatted command please ensure you provide the appropriate number of arguments")
+            return self.output
 
-            elif baseCmd.upper() ==  "quit".upper():
-                print("Leaving FTP client")
-                exit(0)
+        if baseCmd.upper() == "connect".upper():
+            self.commSocket = self.connect(separatedCmd[1], separatedCmd[2])
+            if(self.commSocket == None):
+                self.output += "Connection failed! Please try again"
+                return self.output
+            sendStr(self.commSocket, userCmd)
+            # self.commSocket.send(bytes(userCmd, self.encoding))
+            self.output += "Successful connection formed"
+            self.isConnected = True
 
-            elif isConnected == False:
-                print("A connection must be formed before using the LIST, STOR, or RETR commands!")
-                continue
+        elif baseCmd.upper() ==  "quit".upper():
+            self.output += "Leaving FTP client"
+            if self.commSocket != None:
+                self.commSocket.close()
+            exit(0)
 
-            elif baseCmd.upper() == "list".upper():
-                commSocket.send(bytes(userCmd, ENCODING))
-                self.listFiles()
+        elif self.isConnected == False:
+            self.output += "A connection must be formed before using the LIST, STOR, or RETR commands!"
+            return
 
-            elif baseCmd.upper() ==  "stor".upper():
-                if not self.doesFileExist(separatedCmd[1]):
-                    print("Stor file does not exist!")
-                    continue
-                commSocket.send(bytes(userCmd, ENCODING))
-                self.stor(separatedCmd[1])
+        elif baseCmd.upper() == "list".upper():
+            sendStr(self.commSocket, userCmd)
+            self.listFiles()
 
-            elif baseCmd.upper() == "retr".upper():
-                commSocket.send(bytes(userCmd, ENCODING))
-                self.retr(separatedCmd[1])
+        elif baseCmd.upper() ==  "stor".upper():
+            storFile = self.clientDir + separatedCmd[1]
+            if not self.doesFileExist(storFile):
+                self.output += "Stor file does not exist!"
+                return self.output
+            sendStr(self.commSocket, userCmd)
+            self.stor(storFile)
 
-            else:
-                print("Something went really wrong!")
+        elif baseCmd.upper() == "retr".upper():
+            retrFile = self.clientDir + separatedCmd[1]
+            sendStr(self.commSocket, userCmd)
+            self.retr(retrFile)
+        else:
+                self.output += "Something went really wrong!"
+        return self.output
 
     def verifyCommandArgs(self, baseCmd, fullCmd):
         if baseCmd.upper() ==  "connect".upper():
@@ -92,37 +94,29 @@ class FtpClient:
             return None
 
     def listFiles(self):
-        dataSocket = self.dataServer(DATAHOST, DATAPORT)
+        dataSocket = self.dataServer(self.datahost, self.dataport)
         while True:
-            data = dataSocket.recv(256)
-            if len(data) == 0:
+            data = recvStr(dataSocket)
+            if"#%^ENDLIST^%#" in data:
                 break
-            print(data.decode(DECODING), end="")
+            self.output += data
         dataSocket.close()
 
     def stor(self, fileName):
-        dataSocket = self.dataServer(DATAHOST, DATAPORT)
-        print("data socket is {}".format(dataSocket))
-        f = open(fileName, "r")
-        dataSocket.send(f.read().encode(ENCODING))
-        f.close()
+        dataSocket = self.dataServer(self.datahost, self.dataport)
+        sendFile(dataSocket, fileName)
         dataSocket.close()
+        self.output += "Successfully sent file {}".format(fileName)
 
     def retr(self, fileName):
-        print("inside retr call with filename {0}".format(fileName))
-        dataSocket = self.dataServer(DATAHOST,  DATAPORT)
+        dataSocket = self.dataServer(self.datahost, self.dataport)
         if not self.fileFoundOnServer(dataSocket):
-            print("Requestd file {} not found on the server".format(fileName))
+            self.output += "Requested file {} not found on the server".format(fileName)
             dataSocket.close()
             return
-        f = open(fileName, "w")
-        while True:
-            data = dataSocket.recv(FILECHUNKSIZE).decode(DECODING)
-            f.write(data)
-            if(len(data) != FILECHUNKSIZE):
-                break
-        f.close()
+        recvFile(dataSocket, fileName)
         dataSocket.close()
+        self.output += "Successfully retrieved file {}".format(fileName)
 
 
     def dataServer(self, ip, port):
@@ -139,7 +133,7 @@ class FtpClient:
 
 
     def fileFoundOnServer(self, dataSocket):
-        isFound = dataSocket.recv(8).decode(DECODING)
+        isFound = dataSocket.recv(1).decode(self.decoding)
         return isFound == "0"
 
     def isValidCommand(self, userCmd):
@@ -150,10 +144,10 @@ class FtpClient:
 
     def parseCmd(self,userCmd):
         separatedCmd = userCmd.split()
-        if self.isValidCommand(separatedCmd[0]):
-            return separatedCmd
-        else:
+        if separatedCmd == None or  (not self.isValidCommand(separatedCmd[0])):
             return None
+        else:
+            return separatedCmd
 
     def doesFileExist(self, fileName):
         f = None

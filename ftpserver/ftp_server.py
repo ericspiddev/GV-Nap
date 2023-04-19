@@ -1,21 +1,22 @@
-
 import os
 import socket
 from os import listdir
 from threading import Thread
+from common import *
 
 HOST="127.0.0.1"
 PORT=5665
-DATAPORT=8080
+DATAPORT=6556
 COMMRECVSIZE=512
 FILECHUNKSIZE=4096
 
 class FtpServer:
-    def __init__(self, host, port, encoding, decoding):
+    def __init__(self, host, port, encoding, decoding, serverDir):
         self.host = host
         self.port = port
         self.encoding = encoding
         self.decoding = decoding
+        self.serverDir = serverDir
         self.controlSock = None
 
     def runServer(self):
@@ -30,58 +31,57 @@ class FtpServer:
 
     def server(self, controlSock):
         while True:
-            command = controlSock.recv(COMMRECVSIZE).decode(self.decoding)
+            print("run server!")
+            command = recvStr(self.controlSock)
             if(len(command) == 0):
                 print("Ending connection!")
                 controlSock.close()
                 exit(1)
+            print("Command is {}".format(command), flush=True)
             self.executeCommand(self.getBaseCmd(command), command.split())
 
     def getBaseCmd(self, userCmd):
         return userCmd.split()[0]
 
     def executeCommand(self, basecmd, fullcmd):
+        print("base command is {}, fulll cmd is {}".format(basecmd, fullcmd), flush=True)
         if basecmd.upper() == "connect".upper():
             return
         elif basecmd.upper() == "list".upper():
             self.listFiles()
         elif basecmd.upper() == "retr".upper():
-            self.retr(fullcmd[1])
+            self.retr(self.serverDir + fullcmd[1])
         elif basecmd.upper() == "stor".upper():
-            self.stor(fullcmd[1])
+            self.stor(self.serverDir + fullcmd[1])
         else:
             print("Unrecognized command")
     def retr(self, fileName):
         dataSock = self.dataClient()
         if not self.doesFileExist(fileName):
             print("File does not exist!")
-            dataSock.send("-1".encode(self.encoding))
+            sendData(dataSock, "1", 1)
             dataSock.close()
-        dataSock.send("0".encode(self.encoding))
-        f = open(fileName, "r")
-        dataSock.send(f.read().encode(self.encoding))
-        f.close()
+            return
+        sendData(dataSock, "0", 1)
+        sendFile(dataSock, fileName)
         dataSock.close()
 
     def listFiles(self):
         dataSock = self.dataClient()
-        files = listdir()
+        files = listdir(self.serverDir)
         for file in files:
-            if(os.path.isfile(file)):
-                dataSock.send("{}\n".format(file).encode(self.encoding))
+            if(os.path.isfile(self.serverDir + file)):
+                print("sending file {}".format(file))
+                sendStr(dataSock, "{}\n".format(file))
+        sendStr(dataSock, "#%^ENDLIST^%#\n")
         dataSock.close()
-
 
     def stor(self, fileName):
         dataSock = self.dataClient()
-        print(dataSock)
-        f = open(fileName, "w")
-        while True:
-            data = dataSock.recv(FILECHUNKSIZE).decode(self.decoding)
-            f.write(data)
-            if(len(data) != FILECHUNKSIZE):
-                break
-        f.close()
+        if(dataSock == None):
+            print("something bad happened!")
+            return
+        recvFile(dataSock, fileName)
         dataSock.close()
 
     def doesFileExist(self, fileName):

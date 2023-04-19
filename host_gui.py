@@ -1,50 +1,47 @@
-from ctypes import alignment
 import sys
-import random
 from PySide6 import QtCore, QtWidgets, QtGui
+from napster_host import NapsterHost
+from threading import Thread, Event
 
 class HostGui(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
-
-
-        self.hello = ["Hallo Welt", "Hei maailma", "Hola Mundo", "Привет мир"]
-
-        self.button = QtWidgets.QPushButton("Click me!")
-        self.text = QtWidgets.QLabel("Hello World",
-                                     alignment=QtCore.Qt.AlignCenter)
-
         # widgets for specifying the central server's host
-        csLabel = QtWidgets.QLabel('Server HostName:')
-        csHostName = QtWidgets.QLineEdit()
-        csButton = QtWidgets.QPushButton('Connect')
+        self.csHostLabel = QtWidgets.QLabel('Server HostName:')
+        self.csHostName = QtWidgets.QLineEdit()
+        self.csPortLabel = QtWidgets.QLabel('Port')
+        self.csPortNumber = QtWidgets.QLineEdit()
+        self.csButton = QtWidgets.QPushButton('Connect')
+        self.csButton.clicked.connect(self.connectToCentralServer)
 
         self.connTop = QtWidgets.QWidget()
         self.connTopLayout = QtWidgets.QHBoxLayout()
-        self.connTopLayout.addWidget(csLabel)
-        self.connTopLayout.addWidget(csHostName)
-        self.connTopLayout.addWidget(csButton)
+        self.connTopLayout.addWidget(self.csHostLabel)
+        self.connTopLayout.addWidget(self.csHostName)
+        self.connTopLayout.addWidget(self.csPortLabel)
+        self.connTopLayout.addWidget(self.csPortNumber)
+        self.connTopLayout.addWidget(self.csButton)
         self.connTop.setLayout(self.connTopLayout)
 
         #widgets for taking in user information
-        uiUserLabel = QtWidgets.QLabel('Username')
-        uiUserName = QtWidgets.QLineEdit()
-        uiHostLabel = QtWidgets.QLabel('Hostname:')
-        uiHostName = QtWidgets.QLineEdit()
-        uiSpeedLabel = QtWidgets.QLabel('Speed:')
-        uiSpeedChoice = QtWidgets.QComboBox()
-        uiSpeedChoice.addItem('Slow')
-        uiSpeedChoice.addItem('Average')
-        uiSpeedChoice.addItem('Fast')
+        self.uiUserLabel = QtWidgets.QLabel('Username')
+        self.uiUserName = QtWidgets.QLineEdit()
+        self.uiHostLabel = QtWidgets.QLabel('Hostname:')
+        self.uiHostName = QtWidgets.QLineEdit()
+        self.uiSpeedLabel = QtWidgets.QLabel('Speed:')
+        self.uiSpeedChoice = QtWidgets.QComboBox()
+        self.uiSpeedChoice.addItem('Slow')
+        self.uiSpeedChoice.addItem('Average')
+        self.uiSpeedChoice.addItem('Fast')
 
         self.connBottom = QtWidgets.QWidget()
         self.connBottomLayout = QtWidgets.QHBoxLayout()
-        self.connBottomLayout.addWidget(uiUserLabel)
-        self.connBottomLayout.addWidget(uiUserName)
-        self.connBottomLayout.addWidget(uiHostLabel)
-        self.connBottomLayout.addWidget(uiHostName)
-        self.connBottomLayout.addWidget(uiSpeedLabel)
-        self.connBottomLayout.addWidget(uiSpeedChoice)
+        self.connBottomLayout.addWidget(self.uiUserLabel)
+        self.connBottomLayout.addWidget(self.uiUserName)
+        self.connBottomLayout.addWidget(self.uiHostLabel)
+        self.connBottomLayout.addWidget(self.uiHostName)
+        self.connBottomLayout.addWidget(self.uiSpeedLabel)
+        self.connBottomLayout.addWidget(self.uiSpeedChoice)
         self.connBottom.setLayout(self.connBottomLayout)
 
 
@@ -59,6 +56,7 @@ class HostGui(QtWidgets.QWidget):
         ksLabel = QtWidgets.QLabel('Keyword Search:')
         ksText = QtWidgets.QLineEdit()
         ksButton = QtWidgets.QPushButton('Search')
+        ksButton.clicked.connect(self.keyWordSearch)
 
         self.searchTop = QtWidgets.QWidget()
         self.searchTopLayout = QtWidgets.QHBoxLayout()
@@ -83,20 +81,21 @@ class HostGui(QtWidgets.QWidget):
         self.searchSection.setLayout(self.searchSecLayout)
 
         ftLabel = QtWidgets.QLabel('Enter Command:')
-        ftCommand = QtWidgets.QLineEdit()
+        self.ftCommand = QtWidgets.QLineEdit()
         ftButton = QtWidgets.QPushButton('Execute')
+        ftButton.clicked.connect(self.executeFtpCommand)
 
         self.ftpTop = QtWidgets.QWidget()
         self.ftpTopLayout = QtWidgets.QHBoxLayout()
         self.ftpTopLayout.addWidget(ftLabel)
-        self.ftpTopLayout.addWidget(ftCommand)
+        self.ftpTopLayout.addWidget(self.ftCommand)
         self.ftpTopLayout.addWidget(ftButton)
         self.ftpTop.setLayout(self.ftpTopLayout)
 
-        ftText = QtWidgets.QPlainTextEdit()
+        self.ftText = QtWidgets.QPlainTextEdit()
         self.ftpBottom = QtWidgets.QWidget()
         self.ftpBottomLayout = QtWidgets.QHBoxLayout()
-        self.ftpBottomLayout.addWidget(ftText)
+        self.ftpBottomLayout.addWidget(self.ftText)
         self.ftpBottom.setLayout(self.ftpBottomLayout)
 
         self.ftpSection = QtWidgets.QWidget()
@@ -113,6 +112,19 @@ class HostGui(QtWidgets.QWidget):
         self.hostGuiWidget.setLayout(self.hostGuiLayout)
 
 
+        self.executeEvent = Event()
+        self.updateText = Event()
+        self.result = ""
+
+        self.host = NapsterHost()
+        self.initFtpText()
+        self.shouldExecuteFtpCommand = False
+
+        self.clientThread = Thread(target=self.ftpClientThread)
+        self.serverThread = Thread(target=self.startFtpServer)
+
+        self.clientThread.start()
+        self.serverThread.start()
 
         # self.layout = QtWidgets.QVBoxLayout(self)
         # self.layout.addWidget(self.connectionSection)
@@ -121,18 +133,50 @@ class HostGui(QtWidgets.QWidget):
 
         # self.button.clicked.connect(self.magic)
 
+    def connectToCentralServer(self):
+        centralServerHostName = self.csHostName.text()
+        centralServerPort = int(self.csPortNumber.text())
+        userName = self.uiUserName.text()
+        userHostName = self.uiHostName.text()
+        userSpeedChoice = self.uiSpeedChoice.currentText()
+        self.host.connectToCentralServer(centralServerHostName, userName, userHostName, userSpeedChoice, centralServerPort)
+
+    def executeFtpCommand(self):
+        self.executeEvent.set()
+        self.updateText.wait()
+        self.ftText.appendPlainText(self.result)
+        self.updateText.clear()
+
+    def startFtpServer(self):
+        self.host.startServer()
+    def ftpClientThread(self):
+        while True:
+            self.executeEvent.wait()
+            userCmd = self.ftCommand.text() + "\n"
+            self.result = self.host.runFtpClientCmd(userCmd)
+            self.updateText.set()
+            self.executeEvent.clear()
+
+
+
+    def keyWordSearch(self):
+        print("Inside keyword search!")
+
+    def addFtpText(self, result):
+        self.ftText.appendPlainText(result)
+
+    def initFtpText(self):
+        self.ftText.appendPlainText("Welcome to FTP Client!\n")
+
     # @QtCore.Slot()
     # def magic(self):
     #     self.text.setText(random.choice(self.hello))
 
-
-
-
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
-
     gui = HostGui()
     gui.resize(800, 600)
     gui.show()
-
     sys.exit(app.exec())
+
+
