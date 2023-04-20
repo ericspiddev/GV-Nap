@@ -17,15 +17,28 @@ def recvFile(s, fileName):
             break
     f.close()
 
-def appendFile(s, fileName):
+def updateFileDatabase(s, fileName, hostName, port):
     f = open(fileName, "a")
+    data = ""
     while True:
-        data = s.recv(FILECHUNKSIZE).decode('utf-8')
-        print("data len is {} anda data is {}".format(len(data), data))
-        f.write(data)
-        if(len(data) != FILECHUNKSIZE):
+        data = recvStr(s)
+        print("Data is  {}".format(data))
+        if(data == "#$%^&ENDOFFILELINE#$%^&\n"):
+            print("leaving update")
             break
+        data = data.rstrip('\n')
+        f.write("{},{},{}".format(data, hostName, port))
     f.close()
+
+def sendFileLines(s, fileName):
+    f = open(fileName, "r")
+    line = "noteof"
+    while(line):
+            line = f.readline()
+            print("line is {}".format(line))
+            sendStr(s, line)
+    print("Send kill string")
+    sendStr(s, "#$%^&ENDOFFILELINE#$%^&\n")
 
 def sendData(s, data, dataSize):
     sentData = 0

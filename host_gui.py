@@ -1,5 +1,7 @@
+from nis import match
 import sys
 from PySide6 import QtCore, QtWidgets, QtGui
+from common import recvStr, sendStr
 from napster_host import NapsterHost
 from threading import Thread, Event
 
@@ -28,6 +30,8 @@ class HostGui(QtWidgets.QWidget):
         self.uiUserName = QtWidgets.QLineEdit()
         self.uiHostLabel = QtWidgets.QLabel('Hostname:')
         self.uiHostName = QtWidgets.QLineEdit()
+        self.uiPortLabel = QtWidgets.QLabel('Port')
+        self.uiPortNum = QtWidgets.QLineEdit()
         self.uiSpeedLabel = QtWidgets.QLabel('Speed:')
         self.uiSpeedChoice = QtWidgets.QComboBox()
         self.uiSpeedChoice.addItem('Slow')
@@ -40,6 +44,8 @@ class HostGui(QtWidgets.QWidget):
         self.connBottomLayout.addWidget(self.uiUserName)
         self.connBottomLayout.addWidget(self.uiHostLabel)
         self.connBottomLayout.addWidget(self.uiHostName)
+        self.connBottomLayout.addWidget(self.uiPortLabel)
+        self.connBottomLayout.addWidget(self.uiPortNum)
         self.connBottomLayout.addWidget(self.uiSpeedLabel)
         self.connBottomLayout.addWidget(self.uiSpeedChoice)
         self.connBottom.setLayout(self.connBottomLayout)
@@ -54,24 +60,30 @@ class HostGui(QtWidgets.QWidget):
 
         #widgets for keyword search
         ksLabel = QtWidgets.QLabel('Keyword Search:')
-        ksText = QtWidgets.QLineEdit()
+        self.ksText = QtWidgets.QLineEdit()
         ksButton = QtWidgets.QPushButton('Search')
         ksButton.clicked.connect(self.keyWordSearch)
 
         self.searchTop = QtWidgets.QWidget()
         self.searchTopLayout = QtWidgets.QHBoxLayout()
         self.searchTopLayout.addWidget(ksLabel)
-        self.searchTopLayout.addWidget(ksText)
+        self.searchTopLayout.addWidget(self.ksText)
         self.searchTopLayout.addWidget(ksButton)
         self.searchTop.setLayout(self.searchTopLayout)
 
         #widgets to display results
-        ksTable = QtWidgets.QTableWidget(12, 3)
-        ksTable.setHorizontalHeaderLabels(['Speed', 'Hostname', 'Filename'])
+        self.ksTable = QtWidgets.QTableWidget(12, 4)
+        self.ksTable.setHorizontalHeaderLabels(['Filename', 'Hostname', 'Port', 'Speed'])
+        ksHeaders = self.ksTable.horizontalHeader()
+        ksHeaders.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        ksHeaders.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        ksHeaders.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        ksHeaders.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+
 
         self.searchBottom = QtWidgets.QWidget()
         self.searchBottomLayout = QtWidgets.QHBoxLayout()
-        self.searchBottomLayout.addWidget(ksTable)
+        self.searchBottomLayout.addWidget(self.ksTable)
         self.searchBottom.setLayout(self.searchBottomLayout)
 
         self.searchSection = QtWidgets.QWidget()
@@ -93,6 +105,7 @@ class HostGui(QtWidgets.QWidget):
         self.ftpTop.setLayout(self.ftpTopLayout)
 
         self.ftText = QtWidgets.QPlainTextEdit()
+        self.ftText.setReadOnly(True)
         self.ftpBottom = QtWidgets.QWidget()
         self.ftpBottomLayout = QtWidgets.QHBoxLayout()
         self.ftpBottomLayout.addWidget(self.ftText)
@@ -126,20 +139,14 @@ class HostGui(QtWidgets.QWidget):
         self.clientThread.start()
         self.serverThread.start()
 
-        # self.layout = QtWidgets.QVBoxLayout(self)
-        # self.layout.addWidget(self.connectionSection)
-        # self.layout.addWidget(self.text)
-        # self.layout.addWidget(self.button)
-
-        # self.button.clicked.connect(self.magic)
-
     def connectToCentralServer(self):
         centralServerHostName = self.csHostName.text()
         centralServerPort = int(self.csPortNumber.text())
         userName = self.uiUserName.text()
         userHostName = self.uiHostName.text()
         userSpeedChoice = self.uiSpeedChoice.currentText()
-        self.host.connectToCentralServer(centralServerHostName, userName, userHostName, userSpeedChoice, centralServerPort)
+        userPort = int(self.uiPortNum.text())
+        self.host.connectToCentralServer(centralServerHostName, userName, userHostName, userSpeedChoice, centralServerPort, userPort)
 
     def executeFtpCommand(self):
         self.executeEvent.set()
@@ -149,6 +156,7 @@ class HostGui(QtWidgets.QWidget):
 
     def startFtpServer(self):
         self.host.startServer()
+
     def ftpClientThread(self):
         while True:
             self.executeEvent.wait()
@@ -157,14 +165,24 @@ class HostGui(QtWidgets.QWidget):
             self.updateText.set()
             self.executeEvent.clear()
 
-
-
     def keyWordSearch(self):
-        print("Inside keyword search!")
+        self.ksTable.setRowCount(0)
+        self.ksTable.setRowCount(12)
+        searchStr = self.ksText.text() + "\n"
+        sendStr(self.host.centralServerSocket, searchStr)
+        matches = recvStr(self.host.centralServerSocket)
+        print(matches)
+        matches = matches.rsplit('\n')
+        matches = int(matches[0])
+        for i in range(matches):
+            fileLine = recvStr(self.host.centralServerSocket)
+            fileLine = fileLine.rsplit('\n')
+            splitLines = fileLine[0].split(',')
+            self.ksTable.setItem(i, 0,  QtWidgets.QTableWidgetItem(splitLines[0]))
+            self.ksTable.setItem(i, 1, QtWidgets.QTableWidgetItem(splitLines[2]))
+            self.ksTable.setItem(i, 2, QtWidgets.QTableWidgetItem(splitLines[3]))
 
-    def addFtpText(self, result):
-        self.ftText.appendPlainText(result)
-
+            print(fileLine)
     def initFtpText(self):
         self.ftText.appendPlainText("Welcome to FTP Client!\n")
 
@@ -175,8 +193,10 @@ class HostGui(QtWidgets.QWidget):
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
     gui = HostGui()
-    gui.resize(800, 600)
+    gui.resize(900, 700)
     gui.show()
-    sys.exit(app.exec())
+    app.exec()
+    print("sending breakout string")
+    sendStr(gui.host.centralServerSocket, "testitoutbreakstr\n")
 
 

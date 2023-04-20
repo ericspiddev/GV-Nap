@@ -10,7 +10,7 @@ BYTEFORMAT='utf-8'
 
 CENTRALHOST="127.0.0.1"
 CENTRALPORT=8080
-
+HOSTSERVERPORT = 5665
 descriptorFile = "ftpserver/fileDescriptors.txt"
 
 class NapsterHost:
@@ -23,33 +23,20 @@ class NapsterHost:
     def startServer(self):
         self.server.runServer()
 
-    def connectToCentralServer(self, csHostName, userName, userHostName, connSpeed, port ):
+    def connectToCentralServer(self, csHostName, userName, userHostName, connSpeed, csPort, userPort):
         self.centralServerSocket = sock.socket(sock.AF_INET, sock.SOCK_STREAM)
-        self.centralServerSocket.connect((csHostName, int(port)))
-        self.sendHostInfo(self.centralServerSocket, userName, userHostName, connSpeed)
+        self.centralServerSocket.connect((csHostName, int(csPort)))
+        self.sendHostInfo(self.centralServerSocket, userName, userHostName, connSpeed, userPort)
         self.sendFileInfo(self.centralServerSocket, descriptorFile)
 
-    def sendHostInfo(self, cs_sock, userName, hostName, connSpeed):
-        hostInfo = "{0},{1},{2}\n".format(userName, hostName, connSpeed)
+    def sendHostInfo(self, cs_sock, userName, hostName, connSpeed, port):
+        hostInfo = "{0},{1},{2},{3}\n".format(userName, hostName, connSpeed, port)
         sendStr(cs_sock, hostInfo)
 
     def sendFileInfo(self, cs_sock, fileName):
-        sendFile(cs_sock, fileName)
+        sendFileLines(cs_sock, fileName)
 
 
 
 if __name__ == "__main__":
     peerHost = NapsterHost()
-
-    # clientThread = Thread(target=peerHost.startClient)
-    # serverThread = Thread(target=peerHost.startServer)
-
-    # clientThread.start()
-    # serverThread.start()
-    # clientOrServer = input("input 1 for client, anything else for server: ")
-    # if(clientOrServer == "1"):
-    #     while(1):
-    #         usercmd = input(">")
-    #         peerHost.runFtpClientCmd(usercmd)
-    # else:
-    #     peerHost.startServer()
