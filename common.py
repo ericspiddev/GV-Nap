@@ -22,11 +22,9 @@ def updateFileDatabase(s, fileName, hostName, port):
     data = ""
     while True:
         data = recvStr(s)
-        print("Data is  {}".format(data))
         if(data == "#$%^&ENDOFFILELINE#$%^&\n"):
-            print("leaving update")
             break
-        data = data.rstrip('\n')
+        data = data.strip('\n')
         f.write("{},{},{}".format(data, hostName, port))
     f.close()
 
@@ -35,9 +33,7 @@ def sendFileLines(s, fileName):
     line = "noteof"
     while(line):
             line = f.readline()
-            print("line is {}".format(line))
             sendStr(s, line)
-    print("Send kill string")
     sendStr(s, "#$%^&ENDOFFILELINE#$%^&\n")
 
 def sendData(s, data, dataSize):

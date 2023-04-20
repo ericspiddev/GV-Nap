@@ -72,13 +72,12 @@ class HostGui(QtWidgets.QWidget):
         self.searchTop.setLayout(self.searchTopLayout)
 
         #widgets to display results
-        self.ksTable = QtWidgets.QTableWidget(12, 4)
-        self.ksTable.setHorizontalHeaderLabels(['Filename', 'Hostname', 'Port', 'Speed'])
+        self.ksTable = QtWidgets.QTableWidget(12, 3)
+        self.ksTable.setHorizontalHeaderLabels(['Filename', 'Hostname', 'Port'])
         ksHeaders = self.ksTable.horizontalHeader()
         ksHeaders.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
         ksHeaders.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
         ksHeaders.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        ksHeaders.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
 
 
         self.searchBottom = QtWidgets.QWidget()
@@ -96,12 +95,15 @@ class HostGui(QtWidgets.QWidget):
         self.ftCommand = QtWidgets.QLineEdit()
         ftButton = QtWidgets.QPushButton('Execute')
         ftButton.clicked.connect(self.executeFtpCommand)
+        ftClr = QtWidgets.QPushButton('Clear')
+        ftClr.clicked.connect(self.clearFtpLog)
 
         self.ftpTop = QtWidgets.QWidget()
         self.ftpTopLayout = QtWidgets.QHBoxLayout()
         self.ftpTopLayout.addWidget(ftLabel)
         self.ftpTopLayout.addWidget(self.ftCommand)
         self.ftpTopLayout.addWidget(ftButton)
+        self.ftpTopLayout.addWidget(ftClr)
         self.ftpTop.setLayout(self.ftpTopLayout)
 
         self.ftText = QtWidgets.QPlainTextEdit()
@@ -128,25 +130,42 @@ class HostGui(QtWidgets.QWidget):
         self.executeEvent = Event()
         self.updateText = Event()
         self.result = ""
+        self.connectedToCS = False
 
         self.host = NapsterHost()
-        self.initFtpText()
+        self.clearFtpLog()
         self.shouldExecuteFtpCommand = False
+        self.ftpClientIsConnected = True
 
         self.clientThread = Thread(target=self.ftpClientThread)
         self.serverThread = Thread(target=self.startFtpServer)
+
+        self.clientThread.daemon = True
+        self.serverThread.daemon = True
 
         self.clientThread.start()
         self.serverThread.start()
 
     def connectToCentralServer(self):
+        errBox = QtWidgets.QMessageBox()
+        errBox.setWindowTitle("Input error")
         centralServerHostName = self.csHostName.text()
-        centralServerPort = int(self.csPortNumber.text())
         userName = self.uiUserName.text()
         userHostName = self.uiHostName.text()
         userSpeedChoice = self.uiSpeedChoice.currentText()
-        userPort = int(self.uiPortNum.text())
+        try:
+            userPort = int(self.uiPortNum.text())
+            centralServerPort = int(self.csPortNumber.text())
+        except:
+            errBox.setText("Port provided must be a valid number")
+            errBox.exec()
+            return
+        if userName == "" or userHostName == "" or centralServerHostName == "":
+            errBox.setText("Please fill out all the provided boxes before trying to form a connection")
+            errBox.exec()
+            return
         self.host.connectToCentralServer(centralServerHostName, userName, userHostName, userSpeedChoice, centralServerPort, userPort)
+        self.connectedToCS = True
 
     def executeFtpCommand(self):
         self.executeEvent.set()
@@ -157,11 +176,22 @@ class HostGui(QtWidgets.QWidget):
     def startFtpServer(self):
         self.host.startServer()
 
+    def clearFtpLog(self):
+        self.ftText.setPlainText("Welcome to FTP Client!")
+
     def ftpClientThread(self):
         while True:
             self.executeEvent.wait()
             userCmd = self.ftCommand.text() + "\n"
-            self.result = self.host.runFtpClientCmd(userCmd)
+            if "CONNECT" not in userCmd.upper() and not self.ftpClientIsConnected:
+                self.result = "You must be connected to a server before trying to use other commands"
+            else:
+                self.result = self.host.runFtpClientCmd(userCmd)
+                if "CONNECT" in userCmd.upper():
+                    self.ftpClientIsConnected = True
+                elif "QUIT" in userCmd.upper():
+                    self.ftpClientIsConnected = False
+
             self.updateText.set()
             self.executeEvent.clear()
 
@@ -171,7 +201,6 @@ class HostGui(QtWidgets.QWidget):
         searchStr = self.ksText.text() + "\n"
         sendStr(self.host.centralServerSocket, searchStr)
         matches = recvStr(self.host.centralServerSocket)
-        print(matches)
         matches = matches.rsplit('\n')
         matches = int(matches[0])
         for i in range(matches):
@@ -182,13 +211,6 @@ class HostGui(QtWidgets.QWidget):
             self.ksTable.setItem(i, 1, QtWidgets.QTableWidgetItem(splitLines[2]))
             self.ksTable.setItem(i, 2, QtWidgets.QTableWidgetItem(splitLines[3]))
 
-            print(fileLine)
-    def initFtpText(self):
-        self.ftText.appendPlainText("Welcome to FTP Client!\n")
-
-    # @QtCore.Slot()
-    # def magic(self):
-    #     self.text.setText(random.choice(self.hello))
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
@@ -196,7 +218,7 @@ if __name__ == "__main__":
     gui.resize(900, 700)
     gui.show()
     app.exec()
-    print("sending breakout string")
-    sendStr(gui.host.centralServerSocket, "testitoutbreakstr\n")
+    if gui.connectedToCS:
+        sendStr(gui.host.centralServerSocket, "testitoutbreakstr\n")
 
 
